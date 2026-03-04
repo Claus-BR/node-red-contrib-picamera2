@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  * Authors:
- *	- Olaf Hahn
+ *   - Olaf Hahn
  **/
 
 
@@ -25,8 +25,8 @@ module.exports = function(RED) {
 	var isUtf8 = require("is-utf8");
 
 
-	// CameraPI Take Photo Node
-	function CameraPiTakePhotoNode(config) {
+	// Picamera2 Take Photo Node
+	function Picamera2TakePhotoNode(config) {
 		// Create this node
 		RED.nodes.createNode(this,config);
 
@@ -101,8 +101,8 @@ module.exports = function(RED) {
 				fileformat = "jpeg";
 				filepath = homedir + "/";
 				filefqn = filepath + filename;
-				if (RED.settings.verbose) { node.log("camerapi takephoto:" + filefqn); }
-				console.log("CameraPi (log): Tempfile - " + filefqn);
+				if (RED.settings.verbose) { node.log("picamera2 takephoto:" + filefqn); }
+				console.log("Picamera2 (log): Tempfile - " + filefqn);
 
 				cl += " " + filename + " " + filepath + " " + fileformat;
 			} else if (filemode == "2") {
@@ -111,8 +111,8 @@ module.exports = function(RED) {
 				fileformat = "jpeg";
 				filepath = defdir;
 				filefqn = filepath + filename;
-				if (RED.settings.verbose) { node.log("camerapi takephoto:" + filefqn); }
-				console.log("CameraPi (log): Generate - " + filefqn);
+				if (RED.settings.verbose) { node.log("picamera2 takephoto:" + filefqn); }
+				console.log("Picamera2 (log): Generate - " + filefqn);
 
 				cl += " " + filename + " " + filepath + " " + fileformat;
 			} else {
@@ -153,7 +153,7 @@ module.exports = function(RED) {
 					}
 				}
 				cl += " " + fileformat;
-				if (RED.settings.verbose) { node.log("camerapi takephoto:" + filefqn); }
+				if (RED.settings.verbose) { node.log("picamera2 takephoto:" + filefqn); }
 			}
 
 			// Resolution of the image
@@ -163,7 +163,7 @@ module.exports = function(RED) {
 				if (node.resolution) {
 					resolution = node.resolution;
 				} else {
-					resolution = "10";	
+					resolution = "10";
 				}
 			}
 			if (resolution == "1") {
@@ -195,7 +195,7 @@ module.exports = function(RED) {
 					if (node.rotation) {
 						rotation = node.rotation;
 					} else {
-						rotation = "0";	
+						rotation = "0";
 					}
 				}
 			cl += " " + rotation;
@@ -207,7 +207,7 @@ module.exports = function(RED) {
 				if (node.fliph) {
 					fliph = node.fliph;
 				} else {
-					fliph = "1";	
+					fliph = "1";
 				}
 			}
 			if ((msg.flipv) && (msg.flipv !== "")) {
@@ -216,7 +216,7 @@ module.exports = function(RED) {
 				if (node.flipv) {
 					flipv = node.flipv;
 				} else {
-					flipv= "1";	
+					flipv= "1";
 				}
 			}
 			cl += " " + fliph + " " + flipv;
@@ -228,7 +228,7 @@ module.exports = function(RED) {
 				if (node.brightness) {
 					brightness = node.brightness;
 				} else {
-					brightness = "50";	
+					brightness = "50";
 				}
 			}
 			cl += " " + brightness;
@@ -240,7 +240,7 @@ module.exports = function(RED) {
 				if (node.contrast) {
 					contrast = node.contrast;
 				} else {
-					contrast = "0";	
+					contrast = "0";
 				}
 			}
 			cl += " " + contrast;
@@ -252,7 +252,7 @@ module.exports = function(RED) {
 				if (node.sharpness) {
 					sharpness = node.sharpness;
 				} else {
-					sharpness = "0";	
+					sharpness = "0";
 				}
 			}
 			cl += " " + sharpness;
@@ -264,7 +264,7 @@ module.exports = function(RED) {
 					if (node.exposuremode) {
 						exposuremode = node.exposuremode;
 					} else {
-						exposuremode = "auto";					
+						exposuremode = "auto";
 					}
 				}
 			cl += " " + exposuremode;
@@ -276,7 +276,7 @@ module.exports = function(RED) {
 				if (node.iso) {
 					iso = node.iso;
 				} else {
-					iso = "0";					
+					iso = "0";
 				}
 			}
 			cl += " " + iso;
@@ -288,11 +288,11 @@ module.exports = function(RED) {
 				if (node.agcwait) {
 					agcwait = node.agcwait;
 				} else {
-					agcwait = 1.0;					
+					agcwait = 1.0;
 				}
 			}
 			cl += " " + agcwait;
-			
+            
 			// jpeg quality
 			if ((msg.quality) && (msg.quality !== "")) {
 				quality = msg.quality;
@@ -300,11 +300,11 @@ module.exports = function(RED) {
 				if (node.quality) {
 					quality = node.quality;
 				} else {
-					quality = 80;					
+					quality = 80;
 				}
 			}
 			cl += " " + quality;
-			
+            
 			// awb
 			if ((msg.awb) && (msg.awb != "")) {
 				awb = msg.awb;
@@ -336,7 +336,7 @@ module.exports = function(RED) {
 				//console.log("[exec] stderr: " + stderr);
 				if (error !== null) {
 					msg3 = {payload:error};
-					console.error("CameraPi (err): " + error);
+					console.error("Picamera2 (err): " + error);
 					msg.payload = "";
 					msg.filename = "";
 					msg.fileformat = "";
@@ -353,12 +353,12 @@ module.exports = function(RED) {
 
 						// delete tempfile
 						fsextra.remove(filefqn, function(err) {
-						  if (err) return console.error("CameraPi (err): " + err);
-						  console.log("CameraPi (log): " + filefqn + " remove success!")
-						});			   
+						  if (err) return console.error("Picamera2 (err): " + err);
+						  console.log("Picamera2 (log): " + filefqn + " remove success!")
+						});
 					} else {
 						msg.payload = filefqn;
-						console.log("CameraPi (log): " + filefqn + " written with success!")
+						console.log("Picamera2 (log): " + filefqn + " written with success!")
 					}
 				}
 
@@ -373,7 +373,7 @@ module.exports = function(RED) {
 
 		});
 
-		// CameraPi-TakePhoto has a close
+		// Picamera2-TakePhoto has a close
 		// New function signature function(removed, done) included in Node-Red 0.17
 		node.on("close", function(removed, done) {
 			if (removed) {
@@ -386,5 +386,5 @@ module.exports = function(RED) {
 			done();
 		});
 	}
-	RED.nodes.registerType("camerapi-takephoto",CameraPiTakePhotoNode);
+	RED.nodes.registerType("picamera2-takephoto",Picamera2TakePhotoNode);
 }

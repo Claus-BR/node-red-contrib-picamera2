@@ -82,6 +82,20 @@ format_ext_map = {
 # ---------------------------------------------------------------------------
 # Configure and start camera
 # ---------------------------------------------------------------------------
+try:
+    cameras = Picamera2.global_camera_info()
+except Exception:
+    cameras = []
+
+if not cameras:
+    print("ERROR: No camera detected by libcamera.", file=sys.stderr)
+    print("If running in Docker, ensure the container has access to the camera devices.", file=sys.stderr)
+    print("  Required: --device /dev/video0 --device /dev/video10 --device /dev/video11", file=sys.stderr)
+    print("            --device /dev/video12 --device /dev/media0 --device /dev/media1", file=sys.stderr)
+    print("  Or use:   --privileged", file=sys.stderr)
+    print("Also check: rpicam-hello --list-cameras  on the host to verify the camera works.", file=sys.stderr)
+    sys.exit(1)
+
 picam2 = Picamera2()
 
 config = picam2.create_still_configuration(

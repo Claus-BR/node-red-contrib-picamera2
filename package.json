@@ -1,5 +1,5 @@
 {
-  "name": "@claus-br/node-red-contrib-camerapi",
+  "name": "@claus-br/node-red-contrib-picamera2",
   "version": "1.0.0",
   "description": "Node-RED node for taking photos on a Raspberry Pi using picamera2 (libcamera-based camera stack)",
   "license": "Apache-2.0",
@@ -9,7 +9,6 @@
     "raspberry",
     "pi",
     "camera",
-    "camerapi",
     "picamera2",
     "libcamera"
   ],
@@ -28,7 +27,7 @@
   },
   "node-red": {
     "nodes": {
-      "camerapi": "camerapi.js"
+      "picamera2": "picamera2.js"
     }
   },
   "author": "Claus Winther <Claus.Winther@br-automation.com>",

@@ -1,12 +1,14 @@
-# node-red-contrib-camerapi
+
+# node-red-contrib-picamera2
 A <a href="http://nodered.org" target="_new">Node-RED</a> node to take photos on a Raspberry Pi using the **picamera2** library (libcamera-based camera stack). This node will only work on a Raspberry Pi with a camera module enabled.
 
 ## Installation
 
+
 Run the following command in the root directory of your Node-RED install or home directory (usually ~/.node-red):
 
 ```sh
-        npm install node-red-contrib-camerapi
+        npm install node-red-contrib-picamera2
 ```
 
 ### Prerequisites on the Raspberry Pi
@@ -33,7 +35,9 @@ This node requires Raspberry Pi OS Bullseye or later with the libcamera camera s
 
 ### TakePhoto
 
+
 This node captures a photo using the Raspberry Pi Camera via **picamera2**. Using the Filemode, the image is stored into the file-system and <b>msg.payload</b> gives you the path and filename. In Buffermode the image will reside as a buffer in <b>msg.payload</b>.
+
 
 ### Key differences from the legacy picamera version
 
