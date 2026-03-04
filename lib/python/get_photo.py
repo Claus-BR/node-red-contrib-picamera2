@@ -18,22 +18,30 @@ import time
 # ---------------------------------------------------------------------------
 # Parse command-line arguments
 # ---------------------------------------------------------------------------
-fileName      = sys.argv[1]
-filePath      = sys.argv[2]
-fileFormat     = sys.argv[3]
-resolutionX   = int(sys.argv[4])
-resolutionY   = int(sys.argv[5])
-rotation      = int(sys.argv[6])
-hflip         = sys.argv[7] == "1"
-vflip         = sys.argv[8] == "1"
-brightness    = int(sys.argv[9])      # 0-100  (old picamera range)
-contrast      = int(sys.argv[10])     # -100..100
-sharpness     = int(sys.argv[11])     # -100..100
-exposuremode  = sys.argv[12]
-iso           = int(sys.argv[13])
-agcwait       = float(sys.argv[14])
-quality       = int(sys.argv[15])
-awb           = sys.argv[16]
+if len(sys.argv) < 17:
+    print("ERROR: Not enough arguments. Expected 16, got %d" % (len(sys.argv) - 1), file=sys.stderr)
+    sys.exit(1)
+
+try:
+    fileName      = sys.argv[1]
+    filePath      = sys.argv[2]
+    fileFormat    = sys.argv[3]
+    resolutionX   = int(sys.argv[4])
+    resolutionY   = int(sys.argv[5])
+    rotation      = int(sys.argv[6])
+    hflip         = sys.argv[7] == "1"
+    vflip         = sys.argv[8] == "1"
+    brightness    = int(sys.argv[9])      # 0-100  (old picamera range)
+    contrast      = int(sys.argv[10])     # -100..100
+    sharpness     = int(sys.argv[11])     # -100..100
+    exposuremode  = sys.argv[12]
+    iso           = int(sys.argv[13])
+    agcwait       = float(sys.argv[14])
+    quality       = int(sys.argv[15])
+    awb           = sys.argv[16]
+except (ValueError, IndexError) as e:
+    print("ERROR: Invalid argument: %s" % str(e), file=sys.stderr)
+    sys.exit(1)
 
 # ---------------------------------------------------------------------------
 # Convert legacy picamera value ranges -> picamera2 / libcamera ranges
@@ -98,81 +106,94 @@ if not cameras:
 
 picam2 = Picamera2()
 
-config = picam2.create_still_configuration(
-    main={"size": (resolutionX, resolutionY)},
-    transform=transform,
-)
-picam2.configure(config)
+try:
+    config = picam2.create_still_configuration(
+        main={"size": (resolutionX, resolutionY)},
+        transform=transform,
+    )
+    picam2.configure(config)
 
-# Set JPEG quality / PNG compression
-picam2.options["quality"] = quality
+    # Set JPEG quality / PNG compression
+    picam2.options["quality"] = quality
 
-picam2.start()
+    picam2.start()
 
-# ---------------------------------------------------------------------------
-# Apply camera controls
-# ---------------------------------------------------------------------------
-controls = {
-    "Brightness": new_brightness,
-    "Contrast":   new_contrast,
-    "Sharpness":  new_sharpness,
-}
+    # -----------------------------------------------------------------------
+    # Apply camera controls
+    # -----------------------------------------------------------------------
+    controls = {
+        "Brightness": new_brightness,
+        "Contrast":   new_contrast,
+        "Sharpness":  new_sharpness,
+    }
 
-# Auto White Balance
-awb_mode_map = {
-    "auto":         libcamera.controls.AwbModeEnum.Auto,
-    "incandescent": libcamera.controls.AwbModeEnum.Incandescent,
-    "tungsten":     libcamera.controls.AwbModeEnum.Tungsten,
-    "fluorescent":  libcamera.controls.AwbModeEnum.Fluorescent,
-    "indoor":       libcamera.controls.AwbModeEnum.Indoor,
-    "daylight":     libcamera.controls.AwbModeEnum.Daylight,
-    "sunlight":     libcamera.controls.AwbModeEnum.Daylight,
-    "cloudy":       libcamera.controls.AwbModeEnum.Cloudy,
-    "shade":        libcamera.controls.AwbModeEnum.Cloudy,
-}
+    # Auto White Balance
+    awb_mode_map = {
+        "auto":         libcamera.controls.AwbModeEnum.Auto,
+        "incandescent": libcamera.controls.AwbModeEnum.Incandescent,
+        "tungsten":     libcamera.controls.AwbModeEnum.Tungsten,
+        "fluorescent":  libcamera.controls.AwbModeEnum.Fluorescent,
+        "indoor":       libcamera.controls.AwbModeEnum.Indoor,
+        "daylight":     libcamera.controls.AwbModeEnum.Daylight,
+        "sunlight":     libcamera.controls.AwbModeEnum.Daylight,
+        "cloudy":       libcamera.controls.AwbModeEnum.Cloudy,
+        "shade":        libcamera.controls.AwbModeEnum.Cloudy,
+    }
 
-if awb == "off":
-    controls["AwbEnable"] = False
-else:
-    controls["AwbEnable"] = True
-    if awb in awb_mode_map:
-        controls["AwbMode"] = awb_mode_map[awb]
+    if awb == "off":
+        controls["AwbEnable"] = False
+    else:
+        controls["AwbEnable"] = True
+        if awb in awb_mode_map:
+            controls["AwbMode"] = awb_mode_map[awb]
 
-# Exposure / Gain
-if exposuremode == "auto":
-    controls["AeEnable"] = True
-else:
-    # For non-auto modes, keep AE on but apply fixed gain if ISO was set
-    controls["AeEnable"] = True
+    # Exposure / Gain
+    if exposuremode == "auto":
+        controls["AeEnable"] = True
+    else:
+        controls["AeEnable"] = True
 
-if new_gain is not None:
-    controls["AeEnable"] = False
-    controls["AnalogueGain"] = new_gain
+    if new_gain is not None:
+        controls["AeEnable"] = False
+        controls["AnalogueGain"] = new_gain
 
-picam2.set_controls(controls)
+    picam2.set_controls(controls)
 
-# Wait for AGC / AWB to settle
-time.sleep(agcwait)
+    # Wait for AGC / AWB to settle
+    time.sleep(agcwait)
 
-# ---------------------------------------------------------------------------
-# Capture
-# ---------------------------------------------------------------------------
-picam2.capture_file(filefqn)
+    # -----------------------------------------------------------------------
+    # Capture
+    # -----------------------------------------------------------------------
+    picam2.capture_file(filefqn)
 
-# ---------------------------------------------------------------------------
-# Post-capture rotation for 90° / 270° (requires Pillow)
-# ---------------------------------------------------------------------------
-if needs_pil_rotate:
-    from PIL import Image
-    img = Image.open(filefqn)
-    if needs_pil_rotate == 90:
-        img = img.transpose(Image.ROTATE_270)   # PIL rotates counter-clockwise
-    elif needs_pil_rotate == 270:
-        img = img.transpose(Image.ROTATE_90)
-    img.save(filefqn)
+    # -----------------------------------------------------------------------
+    # Post-capture rotation for 90° / 270° (requires Pillow)
+    # -----------------------------------------------------------------------
+    if needs_pil_rotate:
+        try:
+            from PIL import Image
+        except ImportError:
+            print("WARNING: Pillow not installed, cannot apply %d° rotation" % needs_pil_rotate, file=sys.stderr)
+            needs_pil_rotate = 0
 
-# ---------------------------------------------------------------------------
-# Cleanup
-# ---------------------------------------------------------------------------
-picam2.stop()
-picam2.close()
+    if needs_pil_rotate:
+        img = Image.open(filefqn)
+        if needs_pil_rotate == 90:
+            img = img.transpose(Image.ROTATE_270)   # PIL rotates counter-clockwise
+        elif needs_pil_rotate == 270:
+            img = img.transpose(Image.ROTATE_90)
+        img.save(filefqn)
+
+finally:
+    # -----------------------------------------------------------------------
+    # Cleanup — always release the camera
+    # -----------------------------------------------------------------------
+    try:
+        picam2.stop()
+    except Exception:
+        pass
+    try:
+        picam2.close()
+    except Exception:
+        pass

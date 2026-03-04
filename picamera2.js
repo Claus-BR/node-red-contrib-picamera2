@@ -22,7 +22,10 @@ module.exports = function(RED) {
 
 	var settings = RED.settings;
 	var exec = require("child_process").exec;
-	var isUtf8 = require("is-utf8");
+	var fs = require("fs");
+	var fsextra = require("fs-extra");
+	var os = require("os");
+	const { v4: uuidv4 } = require('uuid');
 
 
 	// Picamera2 Take Photo Node
@@ -53,18 +56,20 @@ module.exports = function(RED) {
 
 		var node = this;
 
-		// if there is an new input
-		node.on("input", function(msg) {
+		// Show idle status on deploy
+		node.status({fill:"grey", shape:"ring", text:"idle"});
 
-			var fsextra = require("fs-extra");
-			var fs = require("fs");
-			const { v4: uuidv4 } = require('uuid');
+		// if there is an new input
+		node.on("input", function(msg, send, done) {
+			// Node-RED 0.x compatibility
+			send = send || function() { node.send.apply(node, arguments); };
+			done = done || function(err) { if (err) { node.error(err, msg); } };
+
 			var uuid = uuidv4();
-			var os = require("os");
 			var localdir = __dirname;
 			var homedir = os.homedir();
 			var defdir = homedir + "/Pictures/";
-			var cl = "python3 " + localdir + "/lib/python/get_photo.py";
+			var cl = "python3 " + JSON.stringify(localdir + "/lib/python/get_photo.py");
 			var resolution;
 			var fileformat;
 			var filename;
@@ -82,7 +87,7 @@ module.exports = function(RED) {
 			var exposuremode;
 			var iso;
 
-			node.status({fill:"green",shape:"dot",text:"connected"});
+			node.status({fill:"blue", shape:"dot", text:"preparing..."});
 
 			// Check the given filemode
 			if((msg.filemode) && (msg.filemode !== "")) {
@@ -321,68 +326,108 @@ module.exports = function(RED) {
 
 			filefqn = filepath + filename;
 
-			var child = exec(cl, {encoding: "binary", maxBuffer:10000000}, function (error, stdout, stderr) {
-				var retval = new Buffer(stdout,"binary");
-				try {
-					if (isUtf8(retval)) { retval = retval.toString(); }
-				} catch(e) {
-					node.log(RED._("exec.badstdout"));
-				}
+			// Ensure output directory exists
+			try {
+				fsextra.ensureDirSync(filepath);
+			} catch(e) {
+				node.status({fill:"red", shape:"dot", text:"dir error"});
+				node.error("Cannot create output directory: " + filepath + " - " + e.message, msg);
+				done(e);
+				return;
+			}
 
+			node.status({fill:"yellow", shape:"dot", text:"taking picture..."});
+
+			var child = exec(cl, {encoding: "binary", maxBuffer:10000000}, function (error, stdout, stderr) {
 				// check error
-				var msg2 = {payload:stderr};
-				var msg3 = null;
-				//console.log("[exec] stdout: " + stdout);
-				//console.log("[exec] stderr: " + stderr);
 				if (error !== null) {
-					msg3 = {payload:error};
-					console.error("Picamera2 (err): " + error);
+					var stderrStr = stderr ? stderr.toString().trim() : "";
+					var errMsg = stderrStr || error.message || "Unknown capture error";
+
+					// Provide user-friendly status based on error
+					if (stderrStr.indexOf("No camera detected") >= 0) {
+						node.status({fill:"red", shape:"dot", text:"no camera found"});
+					} else if (stderrStr.indexOf("list index out of range") >= 0) {
+						node.status({fill:"red", shape:"dot", text:"no camera found"});
+					} else {
+						node.status({fill:"red", shape:"dot", text:"capture failed"});
+					}
+
+					node.error("Capture failed: " + errMsg, msg);
 					msg.payload = "";
 					msg.filename = "";
 					msg.fileformat = "";
 					msg.filepath = "";
-				} else {
-					msg.filename = filename;
-					msg.filepath = filepath;
-					msg.fileformat = fileformat;
-
-					// get the raw image into payload and delete tempfile on buffermode
-					if (filemode == "0") {
-						// put the imagefile into payload
-						msg.payload = fs.readFileSync(filefqn);
-
-						// delete tempfile
-						fsextra.remove(filefqn, function(err) {
-						  if (err) return console.error("Picamera2 (err): " + err);
-						  console.log("Picamera2 (log): " + filefqn + " remove success!")
-						});
-					} else {
-						msg.payload = filefqn;
-						console.log("Picamera2 (log): " + filefqn + " written with success!")
-					}
+					send(msg);
+					done();
+					delete node.activeProcesses[child.pid];
+					return;
 				}
 
-				node.status({});
-				node.send(msg);
+				msg.filename = filename;
+				msg.filepath = filepath;
+				msg.fileformat = fileformat;
+
+				// get the raw image into payload and delete tempfile on buffermode
+				if (filemode == "0") {
+					try {
+						msg.payload = fs.readFileSync(filefqn);
+					} catch(e) {
+						node.status({fill:"red", shape:"dot", text:"read error"});
+						node.error("Failed to read captured image: " + e.message, msg);
+						done(e);
+						delete node.activeProcesses[child.pid];
+						return;
+					}
+
+					// delete tempfile
+					fsextra.remove(filefqn, function(err) {
+						if (err) {
+							node.warn("Could not remove temp file: " + filefqn);
+						}
+					});
+
+					node.status({fill:"green", shape:"dot", text:"captured (buffer)"});
+				} else {
+					msg.payload = filefqn;
+					node.status({fill:"green", shape:"dot", text:"captured: " + filename});
+				}
+
+				send(msg);
+				done();
 				delete node.activeProcesses[child.pid];
+
+				// Return to idle after 3 seconds
+				setTimeout(function() {
+					if (!node.closing) {
+						node.status({fill:"grey", shape:"ring", text:"idle"});
+					}
+				}, 3000);
 			});
 
-			child.on("error",function(){});
+			child.on("error", function(err) {
+				node.status({fill:"red", shape:"dot", text:"exec error"});
+				node.error("Failed to start python3: " + err.message, msg);
+				done(err);
+			});
 
 			node.activeProcesses[child.pid] = child;
 
 		});
 
 		// Picamera2-TakePhoto has a close
-		// New function signature function(removed, done) included in Node-Red 0.17
 		node.on("close", function(removed, done) {
-			if (removed) {
-				// This node has been deleted
-				node.closing = true;
+			node.closing = true;
+			// Kill any active capture processes
+			for (var pid in node.activeProcesses) {
+				if (node.activeProcesses.hasOwnProperty(pid)) {
+					try {
+						node.activeProcesses[pid].kill();
+					} catch(e) { /* ignore */ }
+				}
 			}
-			else {
-				// This node is being restarted
-			}
+			node.activeProcesses = {};
+			node.status({});
 			done();
 		});
 	}

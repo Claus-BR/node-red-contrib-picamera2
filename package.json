@@ -16,10 +16,8 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
-    "is-utf8": "latest",
-    "uuid": "latest",
-    "fs-extra": "latest",
-    "fs": "latest"
+    "uuid": "^9.0.0",
+    "fs-extra": "^11.0.0"
   },
   "repository": {
     "type": "git",
