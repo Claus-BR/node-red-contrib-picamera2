@@ -34,7 +34,7 @@
     },
     "options" : {
       "automode" : "Auto File Name",
-      "custommode" : "Custom File Name",
+      "defaultmode" : "Default",
       "bufferedmode" : "Buffered Mode",
       "yes" : "Yes",
       "no" : "No",
@@ -43,7 +43,7 @@
     }, 
     "placeholder" : {
       "autoname" : "image (no extension)",
-      "filename" : "Filename with extension",
+      "filename" : "image (no extension)",
       "filepath" : "~/Pictures/",
       "brightness" : "0 to 100",
       "contrast" : "-100 to 100",

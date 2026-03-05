@@ -126,7 +126,7 @@ module.exports = function(RED) {
 				if (node.filemode) {
 					filemode = node.filemode;
 				} else {
-					filemode = "2";
+					filemode = "1";
 				}
 			}
 
@@ -159,18 +159,18 @@ module.exports = function(RED) {
 
 				cl += " " + filename + " " + filepath + " " + fileformat;
 			} else {
-				// Custom file name mode
+				// Default file name mode — name without extension, format from dropdown
+				var baseName;
 				if ((msg.filename) && (msg.filename.trim() !== "")) {
-					filename = msg.filename;
+					baseName = msg.filename.trim();
 				} else {
-					if (node.filename) {
-						filename = node.filename;
-					} else {
-						filename = "image_" + uuid + "." + ext;
-					}
+					baseName = node.filename || "image";
 				}
+				// Strip any file extension the user may have included
+				baseName = baseName.replace(/\.[^/.]+$/, "");
+				filename = baseName + "." + ext;
 				filefqn = filepath + filename;
-				if (RED.settings.verbose) { node.log("picamera2 takephoto (custom): " + filefqn); }
+				if (RED.settings.verbose) { node.log("picamera2 takephoto (default): " + filefqn); }
 
 				cl += " " + filename + " " + filepath + " " + fileformat;
 			}

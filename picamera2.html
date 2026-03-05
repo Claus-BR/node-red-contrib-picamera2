@@ -23,7 +23,7 @@
 		 <label for="node-input-filemode"><i class="fa fa-file-image-o"></i> <span data-i18n="picamera2.label.filemode"></span></label>
 		 <select id="node-input-filemode">
 			<option value="2" data-i18n="picamera2.options.automode"></option>
-			<option value="1" data-i18n="picamera2.options.custommode"></option>
+			<option value="1" data-i18n="picamera2.options.defaultmode"></option>
 			<option value="0" data-i18n="picamera2.options.bufferedmode"></option>
 		</select>
 	</div>
@@ -158,7 +158,7 @@
 			<dt class="optional">msg.filemode
 				<span class="property-type">string</span>
 			</dt>
-			<dd>Overrides the File Mode defined in node editor. Possible file modes: "0", "1" and "2".</dd>
+			<dd>Overrides the File Mode defined in node editor. Possible file modes: "0" (buffered), "1" (default), "2" (auto).</dd>
 			<dt class="optional">msg.filename
 				<span class="property-type">string</span>
 			</dt>
@@ -180,7 +180,7 @@
 					<dt>payload <span class="property-type">string</span></dt>
 					<dd>
 						<p>For filemode "0" (buffered mode), payload contains the raw image as a binary object.</p>
-						<p>For filemode "1" (custom file name) and "2" (auto file name), payload contains the fully qualified file name of the file containing the image.</p>
+						<p>For filemode "1" (default) and "2" (auto file name), payload contains the fully qualified file name of the file containing the image.</p>
 					</dd>
 				</dl>
 			</li>
@@ -191,13 +191,12 @@
 		<p>File Mode indicates the operation mode, which can be:
 			<ol type = "1" start = "0">
 				<li>Buffered mode - the raw image will be sent to the next node(s) in <code>msg.payload</code></li>
-				<li>Custom file name - the image will be stored in a file with the specified file name.</li>
-				<li>Auto file name - the image will be stored in a file and its name automatically generated.</li>
+				<li>Default - the image will be stored in a file with the specified name (extension added from File Format).</li>
+				<li>Auto file name - the image will be stored in a file and its name automatically generated with a timestamp.</li>
 			</ol>
 		</p>
-		<p>File Name defines the name of the file in which the node will save the photo, if File Mode is "Custom file name".</p>
-		<p>File Default Path, when set to Yes (<code>msg.filedefpath = "1"</code>), will save all photos in the default folder (~/Pictures).</p>
-		<p>File Path specifies the path where photos are saved, when File Default Path is No (<code>msg.filedefpath = "0")</code>).</p>
+		<p>File Name defines the base name of the file (without extension) in which the node will save the photo, if File Mode is "Default". The file extension is always determined by the File Format dropdown.</p>
+		<p>File Path specifies the path where photos are saved (defaults to ~/Pictures).</p>
 		<p>File Format defines the format of the file. The following formats are supported: JPEG (default), PNG, BMP.</p>
 		<p>Resolution, the image resolution in pixels.</p>
 		<p>Rotation, rotates the image (in degrees). 0° and 180° use native libcamera transforms. 90° and 270° use a post-capture rotation (requires Pillow).</p>
@@ -224,7 +223,7 @@
 		category: "Raspberry_Pi",
 		color: "#A6BBCF",
 		defaults: {
-			filemode: {value:"2", required:true},
+			filemode: {value:"1", required:true},
 			autoname: {value:"image", required:false},
 			filename: {value:"", required:false},
 			filepath: {value:"", required:false},
@@ -262,7 +261,7 @@
 					$("#filepath").show();
 					$("#fileformat").show();
 				} else {
-					// Custom mode — show filename, filepath, format
+					// Default mode — show filename (no extension), filepath, format
 					$("#autoname").hide();
 					$("#filename").show();
 					$("#filepath").show();
