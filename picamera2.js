@@ -63,7 +63,7 @@ module.exports = function(RED) {
 		this.closing = false;
 
 		var node = this;
-		node.status({ fill: "grey", shape: "ring", text: "idle" });
+		node.status({ fill: "yellow", shape: "ring", text: "starting worker..." });
 
 		function failPendingRequests(reason) {
 			Object.keys(node.pending).forEach(function(reqId) {
@@ -88,6 +88,12 @@ module.exports = function(RED) {
 			var workerPath = path.join(__dirname, "lib", "python", "capture_worker.py");
 			node.worker = spawn("python3", [workerPath], {
 				stdio: ["pipe", "pipe", "pipe"],
+			});
+
+			node.worker.on("spawn", function() {
+				if (!node.closing) {
+					node.status({ fill: "grey", shape: "ring", text: "idle" });
+				}
 			});
 
 			node.workerReadline = readline.createInterface({ input: node.worker.stdout });
@@ -184,6 +190,9 @@ module.exports = function(RED) {
 				node.workerReadline = null;
 			});
 		}
+
+		// Pre-warm worker on deploy so first capture does not pay startup cost.
+		startWorker();
 
 		node.on("input", function(msg, send, done) {
 			send = send || function() { node.send.apply(node, arguments); };
