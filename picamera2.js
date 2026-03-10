@@ -31,6 +31,10 @@ module.exports = function(RED) {
 		return value === true || value === 1 || value === "1" || value === "true";
 	}
 
+	function stripAnsi(value) {
+		return String(value || "").replace(/\x1B\[[0-9;]*[A-Za-z]/g, "");
+	}
+
 	function Picamera2TakePhotoNode(config) {
 		RED.nodes.createNode(this, config);
 
@@ -153,10 +157,17 @@ module.exports = function(RED) {
 			});
 
 			node.worker.stderr.on("data", function(data) {
-				var stderrStr = String(data || "").trim();
-				if (stderrStr) {
-					node.warn("camera-worker: " + stderrStr);
-				}
+				String(data || "").split(/\r?\n/).forEach(function(line) {
+					var cleanLine = stripAnsi(line).trim();
+					if (!cleanLine) {
+						return;
+					}
+
+					// Only surface hard errors from worker/libcamera output.
+					if (/(ERROR|Traceback|Exception|Fatal)/i.test(cleanLine)) {
+						node.error("camera-worker: " + cleanLine);
+					}
+				});
 			});
 
 			node.worker.on("error", function(err) {
