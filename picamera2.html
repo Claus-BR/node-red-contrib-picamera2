@@ -188,6 +188,7 @@
 
 	<h3>Details</h3>
 		<p>This node uses <b>picamera2</b> (the libcamera-based replacement for the legacy picamera library) to capture still images from Raspberry Pi camera modules.</p>
+		<p>The node keeps a persistent Python camera worker running in the background, so the camera stays open between captures and repeated shots are faster.</p>
 		<p>File Mode indicates the operation mode, which can be:
 			<ol type = "1" start = "0">
 				<li>Buffered mode - the raw image will be sent to the next node(s) in <code>msg.payload</code></li>

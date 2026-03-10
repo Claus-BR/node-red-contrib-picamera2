@@ -16,30 +16,30 @@
  *   - Olaf Hahn
  **/
 
-
 module.exports = function(RED) {
 	"use strict";
 
-	var settings = RED.settings;
-	var exec = require("child_process").exec;
+	var spawn = require("child_process").spawn;
 	var fs = require("fs");
 	var fsextra = require("fs-extra");
 	var os = require("os");
-	const { v4: uuidv4 } = require('uuid');
+	var path = require("path");
+	var readline = require("readline");
+	const { v4: uuidv4 } = require("uuid");
 
+	function normalizeBool(value) {
+		return value === true || value === 1 || value === "1" || value === "true";
+	}
 
-	// Picamera2 Take Photo Node
 	function Picamera2TakePhotoNode(config) {
-		// Create this node
-		RED.nodes.createNode(this,config);
+		RED.nodes.createNode(this, config);
 
-		// set parameters and save locally
 		this.filemode = config.filemode;
-		this.filename =  config.filename;
+		this.filename = config.filename;
 		this.autoname = config.autoname;
 		this.filepath = config.filepath;
 		this.fileformat = config.fileformat;
-		this.resolution =  config.resolution;
+		this.resolution = config.resolution;
 		this.rotation = config.rotation;
 		this.fliph = config.fliph;
 		this.flipv = config.flipv;
@@ -51,100 +51,192 @@ module.exports = function(RED) {
 		this.agcwait = config.agcwait;
 		this.quality = config.quality;
 		this.awb = config.awb;
-		this.name =  config.name;
-		this.activeProcesses = {};
+		this.name = config.name;
+
+		this.worker = null;
+		this.workerReadline = null;
+		this.pending = {};
+		this.closing = false;
 
 		var node = this;
+		node.status({ fill: "grey", shape: "ring", text: "idle" });
 
-		// Show idle status on deploy
-		node.status({fill:"grey", shape:"ring", text:"idle"});
+		function failPendingRequests(reason) {
+			Object.keys(node.pending).forEach(function(reqId) {
+				var pending = node.pending[reqId];
+				delete node.pending[reqId];
 
-		// if there is an new input
+				pending.msg.payload = "";
+				pending.msg.filename = "";
+				pending.msg.fileformat = "";
+				pending.msg.filepath = "";
+				node.error("Capture failed: " + reason, pending.msg);
+				pending.send(pending.msg);
+				pending.done();
+			});
+		}
+
+		function startWorker() {
+			if (node.worker) {
+				return;
+			}
+
+			var workerPath = path.join(__dirname, "lib", "python", "capture_worker.py");
+			node.worker = spawn("python3", [workerPath], {
+				stdio: ["pipe", "pipe", "pipe"],
+			});
+
+			node.workerReadline = readline.createInterface({ input: node.worker.stdout });
+			node.workerReadline.on("line", function(line) {
+				var response;
+				try {
+					response = JSON.parse(line);
+				} catch (e) {
+					node.warn("Ignoring invalid worker output: " + line);
+					return;
+				}
+
+				var reqId = response.id;
+				if (!reqId || !node.pending[reqId]) {
+					return;
+				}
+
+				var pending = node.pending[reqId];
+				delete node.pending[reqId];
+
+				if (!response.ok) {
+					node.status({ fill: "red", shape: "dot", text: "capture failed" });
+					node.error("Capture failed: " + (response.error || "Unknown worker error"), pending.msg);
+					pending.msg.payload = "";
+					pending.msg.filename = "";
+					pending.msg.fileformat = "";
+					pending.msg.filepath = "";
+					pending.send(pending.msg);
+					pending.done();
+					return;
+				}
+
+				pending.msg.filename = pending.filename;
+				pending.msg.filepath = pending.filepath;
+				pending.msg.fileformat = pending.fileformat;
+
+				if (pending.filemode === "0") {
+					try {
+						pending.msg.payload = fs.readFileSync(pending.filefqn);
+					} catch (e) {
+						node.status({ fill: "red", shape: "dot", text: "read error" });
+						node.error("Failed to read captured image: " + e.message, pending.msg);
+						pending.done(e);
+						return;
+					}
+
+					fsextra.remove(pending.filefqn, function(err) {
+						if (err) {
+							node.warn("Could not remove temp file: " + pending.filefqn);
+						}
+					});
+
+					node.status({ fill: "green", shape: "dot", text: "captured (buffer)" });
+				} else {
+					pending.msg.payload = pending.filefqn;
+					node.status({ fill: "green", shape: "dot", text: "captured: " + pending.filename });
+				}
+
+				pending.send(pending.msg);
+				pending.done();
+
+				setTimeout(function() {
+					if (!node.closing) {
+						node.status({ fill: "grey", shape: "ring", text: "idle" });
+					}
+				}, 3000);
+			});
+
+			node.worker.stderr.on("data", function(data) {
+				var stderrStr = String(data || "").trim();
+				if (stderrStr) {
+					node.warn("camera-worker: " + stderrStr);
+				}
+			});
+
+			node.worker.on("error", function(err) {
+				node.status({ fill: "red", shape: "dot", text: "worker error" });
+				failPendingRequests("Failed to start python worker: " + err.message);
+			});
+
+			node.worker.on("exit", function(code, signal) {
+				if (!node.closing) {
+					node.status({ fill: "red", shape: "dot", text: "worker stopped" });
+				}
+				failPendingRequests("Worker exited (code=" + code + ", signal=" + signal + ")");
+				node.worker = null;
+				node.workerReadline = null;
+			});
+		}
+
 		node.on("input", function(msg, send, done) {
-			// Node-RED 0.x compatibility
 			send = send || function() { node.send.apply(node, arguments); };
 			done = done || function(err) { if (err) { node.error(err, msg); } };
 
-			var uuid = uuidv4();
-			var localdir = __dirname;
 			var homedir = os.homedir();
 			var defdir = homedir + "/Pictures/";
-			var cl = "python3 " + JSON.stringify(localdir + "/lib/python/get_photo.py");
-			var resolution;
-			var fileformat;
+			var uuid = uuidv4();
 			var filename;
 			var filepath;
+			var fileformat;
 			var filemode;
 			var filefqn;
-			var fliph, flipv;
-			var sharpness;
+
+			var resolution;
+			var rotation;
+			var fliph;
+			var flipv;
 			var brightness;
 			var contrast;
+			var sharpness;
+			var exposuremode;
+			var iso;
 			var agcwait;
 			var quality;
 			var awb;
-			var rotation;
-			var exposuremode;
-			var iso;
 
-			node.status({fill:"blue", shape:"dot", text:"preparing..."});
+			node.status({ fill: "blue", shape: "dot", text: "preparing..." });
 
-			// ----- Resolve file path (applies to ALL modes) -----
-			if ((msg.filepath) && (msg.filepath.trim() !== "")) {
+			if (msg.filepath && msg.filepath.trim() !== "") {
 				filepath = msg.filepath;
+			} else if (node.filepath) {
+				filepath = node.filepath;
 			} else {
-				if (node.filepath) {
-					filepath = node.filepath;
-				} else {
-					filepath = defdir;
-				}
+				filepath = defdir;
 			}
-			// Ensure trailing separator
 			if (filepath && !filepath.endsWith("/")) {
 				filepath += "/";
 			}
 
-			// ----- Resolve file format -----
-			if ((msg.fileformat) && (msg.fileformat.trim() !== "")) {
+			if (msg.fileformat && msg.fileformat.trim() !== "") {
 				fileformat = msg.fileformat;
+			} else if (node.fileformat) {
+				fileformat = node.fileformat;
 			} else {
-				if (node.fileformat) {
-					fileformat = node.fileformat;
-				} else {
-					fileformat = "png";
-				}
+				fileformat = "png";
 			}
 
-			// Map format to file extension
-			var extMap = {"jpeg": "jpg", "png": "png", "bmp": "bmp"};
+			var extMap = { jpeg: "jpg", png: "png", bmp: "bmp" };
 			var ext = extMap[fileformat] || "jpg";
 
-			// Check the given filemode
-			if((msg.filemode) && (msg.filemode !== "")) {
+			if (msg.filemode && msg.filemode !== "") {
 				filemode = msg.filemode;
+			} else if (node.filemode) {
+				filemode = node.filemode;
 			} else {
-				if (node.filemode) {
-					filemode = node.filemode;
-				} else {
-					filemode = "1";
-				}
+				filemode = "1";
 			}
 
-			if (filemode == "0") {
-				// Buffered mode — capture to temp file, read into buffer, delete
+			if (filemode === "0") {
 				filename = "tmp_" + uuid + "." + ext;
 				filefqn = filepath + filename;
-				if (RED.settings.verbose) { node.log("picamera2 takephoto (buffer): " + filefqn); }
-
-				cl += " " + filename + " " + filepath + " " + fileformat;
-			} else if (filemode == "2") {
-				// Auto file name mode: name_timestamp.ext
-				var autoname;
-				if ((msg.autoname) && (msg.autoname.trim() !== "")) {
-					autoname = msg.autoname;
-				} else {
-					autoname = node.autoname || "image";
-				}
+			} else if (filemode === "2") {
+				var autoname = (msg.autoname && msg.autoname.trim() !== "") ? msg.autoname : (node.autoname || "image");
 				var now = new Date();
 				var timestamp = now.getFullYear()
 					+ ("0" + (now.getMonth() + 1)).slice(-2)
@@ -155,295 +247,130 @@ module.exports = function(RED) {
 					+ ("0" + now.getSeconds()).slice(-2);
 				filename = autoname + "_" + timestamp + "." + ext;
 				filefqn = filepath + filename;
-				if (RED.settings.verbose) { node.log("picamera2 takephoto (auto): " + filefqn); }
-
-				cl += " " + filename + " " + filepath + " " + fileformat;
 			} else {
-				// Default file name mode — name without extension, format from dropdown
-				var baseName;
-				if ((msg.filename) && (msg.filename.trim() !== "")) {
-					baseName = msg.filename.trim();
-				} else {
-					baseName = node.filename || "image";
-				}
-				// Strip any file extension the user may have included
+				var baseName = (msg.filename && msg.filename.trim() !== "") ? msg.filename.trim() : (node.filename || "image");
 				baseName = baseName.replace(/\.[^/.]+$/, "");
 				filename = baseName + "." + ext;
 				filefqn = filepath + filename;
-				if (RED.settings.verbose) { node.log("picamera2 takephoto (default): " + filefqn); }
-
-				cl += " " + filename + " " + filepath + " " + fileformat;
 			}
 
-			// Resolution of the image
-			if ((msg.resolution) && (msg.resolution !== "")) {
+			if (msg.resolution && msg.resolution !== "") {
 				resolution = msg.resolution;
+			} else if (node.resolution) {
+				resolution = node.resolution;
 			} else {
-				if (node.resolution) {
-					resolution = node.resolution;
-				} else {
-					resolution = "10";
-				}
-			}
-			if (resolution == "1") {
-				cl += " 320 240";
-			} else if (resolution == "2" ) {
-				cl += " 640 480";
-			} else if (resolution == "3" ) {
-				cl += " 800 600";
-			} else if (resolution == "4" ) {
-				cl += " 1024 768";
-			} else if (resolution == "5") {
-				cl += " 1280 720";
-			} else if (resolution == "6") {
-				cl += " 1640 922";
-			} else if (resolution == "7") {
-				cl += " 1640 1232";
-			} else if (resolution == "8" ) {
-				cl += " 1920 1080";
-			} else if (resolution == "9") {
-				cl += " 2592 1944";
-			} else {
-				cl += " 3280 2464";
+				resolution = "10";
 			}
 
-			// rotation
-			if ((msg.rotation) && (msg.rotation !== "")) {
-				rotation = msg.rotation;
-				} else {
-					if (node.rotation) {
-						rotation = node.rotation;
-					} else {
-						rotation = "0";
-					}
-				}
-			cl += " " + rotation;
+			var resolutionMap = {
+				"1": [320, 240],
+				"2": [640, 480],
+				"3": [800, 600],
+				"4": [1024, 768],
+				"5": [1280, 720],
+				"6": [1640, 922],
+				"7": [1640, 1232],
+				"8": [1920, 1080],
+				"9": [2592, 1944],
+				"10": [3280, 2464],
+			};
+			var size = resolutionMap[resolution] || resolutionMap["10"];
 
-			// hflip and vflip
-			if ((msg.fliph) && (msg.fliph !== "")) {
-				fliph = msg.fliph;
-			} else {
-				if (node.fliph) {
-					fliph = node.fliph;
-				} else {
-					fliph = "1";
-				}
-			}
-			if ((msg.flipv) && (msg.flipv !== "")) {
-				flipv = msg.flipv;
-			} else {
-				if (node.flipv) {
-					flipv = node.flipv;
-				} else {
-					flipv= "1";
-				}
-			}
-			cl += " " + fliph + " " + flipv;
+			rotation = (msg.rotation && msg.rotation !== "") ? msg.rotation : (node.rotation || "0");
+			fliph = (msg.fliph && msg.fliph !== "") ? msg.fliph : (node.fliph || "0");
+			flipv = (msg.flipv && msg.flipv !== "") ? msg.flipv : (node.flipv || "0");
+			brightness = (msg.brightness && msg.brightness !== "") ? msg.brightness : (node.brightness || "50");
+			contrast = (msg.contrast && msg.contrast !== "") ? msg.contrast : (node.contrast || "0");
+			sharpness = (msg.sharpness && msg.sharpness !== "") ? msg.sharpness : (node.sharpness || "0");
+			exposuremode = (msg.exposuremode && msg.exposuremode !== "") ? msg.exposuremode : (node.exposuremode || "auto");
+			iso = (msg.iso && msg.iso !== "") ? msg.iso : (node.iso || "0");
+			agcwait = (msg.agcwait && msg.agcwait !== "") ? msg.agcwait : (node.agcwait || 1.0);
+			quality = (msg.quality && msg.quality !== "") ? msg.quality : (node.quality || 80);
+			awb = (msg.awb && msg.awb !== "") ? msg.awb : (node.awb || "auto");
 
-			// brightness
-			if ((msg.brightness) && (msg.brightness !== "")) {
-				brightness = msg.brightness;
-			} else {
-				if (node.brightness) {
-					brightness = node.brightness;
-				} else {
-					brightness = "50";
-				}
-			}
-			cl += " " + brightness;
-
-			// contrast
-			if ((msg.contrast) && (msg.contrast !== "")) {
-				contrast = msg.contrast;
-			} else {
-				if (node.contrast) {
-					contrast = node.contrast;
-				} else {
-					contrast = "0";
-				}
-			}
-			cl += " " + contrast;
-
-			// sharpness
-			if ((msg.sharpness) && (msg.sharpness !== "")) {
-				sharpness = msg.sharpness;
-			} else {
-				if (node.sharpness) {
-					sharpness = node.sharpness;
-				} else {
-					sharpness = "0";
-				}
-			}
-			cl += " " + sharpness;
-
-			// exposure-mode
-			if ((msg.exposuremode) && (msg.exposuremode !== "")) {
-				exposuremode = msg.exposuremode;
-				} else {
-					if (node.exposuremode) {
-						exposuremode = node.exposuremode;
-					} else {
-						exposuremode = "auto";
-					}
-				}
-			cl += " " + exposuremode;
-
-			// iso
-			if ((msg.iso) && (msg.iso !== "")) {
-				iso = msg.iso;
-			} else {
-				if (node.iso) {
-					iso = node.iso;
-				} else {
-					iso = "0";
-				}
-			}
-			cl += " " + iso;
-
-			// agcwait
-			if ((msg.agcwait) && (msg.agcwait !== "")) {
-				agcwait = msg.agcwait;
-			} else {
-				if (node.agcwait) {
-					agcwait = node.agcwait;
-				} else {
-					agcwait = 1.0;
-				}
-			}
-			cl += " " + agcwait;
-            
-			// jpeg quality
-			if ((msg.quality) && (msg.quality !== "")) {
-				quality = msg.quality;
-			} else {
-				if (node.quality) {
-					quality = node.quality;
-				} else {
-					quality = 80;
-				}
-			}
-			cl += " " + quality;
-            
-			// awb
-			if ((msg.awb) && (msg.awb != "")) {
-				awb = msg.awb;
-			} else {
-				if (node.awb) {
-					awb = node.awb;
-				} else {
-					awb = "auto";
-				}
-			}
-			cl += " " + awb;
-
-			if (RED.settings.verbose) { node.log(cl); }
-
-			// filefqn already set in mode blocks above
-
-			// Ensure output directory exists
 			try {
 				fsextra.ensureDirSync(filepath);
-			} catch(e) {
-				node.status({fill:"red", shape:"dot", text:"dir error"});
+			} catch (e) {
+				node.status({ fill: "red", shape: "dot", text: "dir error" });
 				node.error("Cannot create output directory: " + filepath + " - " + e.message, msg);
 				done(e);
 				return;
 			}
 
-			node.status({fill:"yellow", shape:"dot", text:"taking picture..."});
-
-			var child = exec(cl, {encoding: "binary", maxBuffer:10000000}, function (error, stdout, stderr) {
-				// check error
-				if (error !== null) {
-					var stderrStr = stderr ? stderr.toString().trim() : "";
-					var errMsg = stderrStr || error.message || "Unknown capture error";
-
-					// Provide user-friendly status based on error
-					if (stderrStr.indexOf("No camera detected") >= 0) {
-						node.status({fill:"red", shape:"dot", text:"no camera found"});
-					} else if (stderrStr.indexOf("list index out of range") >= 0) {
-						node.status({fill:"red", shape:"dot", text:"no camera found"});
-					} else {
-						node.status({fill:"red", shape:"dot", text:"capture failed"});
-					}
-
-					node.error("Capture failed: " + errMsg, msg);
-					msg.payload = "";
-					msg.filename = "";
-					msg.fileformat = "";
-					msg.filepath = "";
-					send(msg);
-					done();
-					delete node.activeProcesses[child.pid];
-					return;
-				}
-
-				msg.filename = filename;
-				msg.filepath = filepath;
-				msg.fileformat = fileformat;
-
-				// get the raw image into payload and delete tempfile on buffermode
-				if (filemode == "0") {
-					try {
-						msg.payload = fs.readFileSync(filefqn);
-					} catch(e) {
-						node.status({fill:"red", shape:"dot", text:"read error"});
-						node.error("Failed to read captured image: " + e.message, msg);
-						done(e);
-						delete node.activeProcesses[child.pid];
-						return;
-					}
-
-					// delete tempfile
-					fsextra.remove(filefqn, function(err) {
-						if (err) {
-							node.warn("Could not remove temp file: " + filefqn);
-						}
-					});
-
-					node.status({fill:"green", shape:"dot", text:"captured (buffer)"});
-				} else {
-					msg.payload = filefqn;
-					node.status({fill:"green", shape:"dot", text:"captured: " + filename});
-				}
-
-				send(msg);
+			startWorker();
+			if (!node.worker || !node.worker.stdin || node.worker.killed) {
+				node.status({ fill: "red", shape: "dot", text: "worker unavailable" });
+				node.error("Capture failed: worker unavailable", msg);
 				done();
-				delete node.activeProcesses[child.pid];
+				return;
+			}
 
-				// Return to idle after 3 seconds
-				setTimeout(function() {
-					if (!node.closing) {
-						node.status({fill:"grey", shape:"ring", text:"idle"});
-					}
-				}, 3000);
-			});
+			node.status({ fill: "yellow", shape: "dot", text: "taking picture..." });
 
-			child.on("error", function(err) {
-				node.status({fill:"red", shape:"dot", text:"exec error"});
-				node.error("Failed to start python3: " + err.message, msg);
-				done(err);
-			});
+			var reqId = uuidv4();
+			node.pending[reqId] = {
+				msg: msg,
+				send: send,
+				done: done,
+				filemode: String(filemode),
+				filename: filename,
+				filepath: filepath,
+				fileformat: fileformat,
+				filefqn: filefqn,
+			};
 
-			node.activeProcesses[child.pid] = child;
+			var request = {
+				cmd: "capture",
+				id: reqId,
+				filename: filename,
+				filepath: filepath,
+				fileformat: fileformat,
+				resolutionX: size[0],
+				resolutionY: size[1],
+				rotation: parseInt(rotation, 10),
+				hflip: normalizeBool(fliph),
+				vflip: normalizeBool(flipv),
+				brightness: parseInt(brightness, 10),
+				contrast: parseInt(contrast, 10),
+				sharpness: parseInt(sharpness, 10),
+				exposuremode: exposuremode,
+				iso: parseInt(iso, 10),
+				agcwait: parseFloat(agcwait),
+				quality: parseInt(quality, 10),
+				awb: awb,
+			};
 
+			try {
+				node.worker.stdin.write(JSON.stringify(request) + "\n");
+			} catch (e) {
+				delete node.pending[reqId];
+				node.status({ fill: "red", shape: "dot", text: "worker write error" });
+				node.error("Capture failed: " + e.message, msg);
+				done(e);
+			}
 		});
 
-		// Picamera2-TakePhoto has a close
 		node.on("close", function(removed, done) {
 			node.closing = true;
-			// Kill any active capture processes
-			for (var pid in node.activeProcesses) {
-				if (node.activeProcesses.hasOwnProperty(pid)) {
-					try {
-						node.activeProcesses[pid].kill();
-					} catch(e) { /* ignore */ }
+			failPendingRequests("Node is closing");
+
+			if (node.worker && !node.worker.killed) {
+				try {
+					node.worker.stdin.write(JSON.stringify({ cmd: "shutdown", id: "close" }) + "\n");
+				} catch (e) {
+					// Ignore worker write errors during shutdown.
 				}
+				setTimeout(function() {
+					if (node.worker && !node.worker.killed) {
+						node.worker.kill();
+					}
+				}, 500);
 			}
-			node.activeProcesses = {};
+
 			node.status({});
 			done();
 		});
 	}
-	RED.nodes.registerType("picamera2-takephoto",Picamera2TakePhotoNode);
-}
+
+	RED.nodes.registerType("picamera2-takephoto", Picamera2TakePhotoNode);
+};
