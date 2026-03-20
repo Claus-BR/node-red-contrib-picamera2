@@ -1,9 +1,9 @@
 {
-  "name": "@claus-br/node-red-contrib-picamera2",
+  "name": "@brdk/node-red-picamera2",
   "version": "1.0.0",
-  "description": "Node-RED node for taking photos on a Raspberry Pi using picamera2 (libcamera-based camera stack)",
+  "description": "Node-RED node for taking photos on a Raspberry Pi using picamera2 library",
   "license": "Apache-2.0",
-  "main": "camerapi.js",
+  "author": "Clausbr",
   "keywords": [
     "node-red",
     "raspberry",
@@ -12,27 +12,23 @@
     "picamera2",
     "libcamera"
   ],
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
   "dependencies": {
     "uuid": "^9.0.0",
     "fs-extra": "^11.0.0"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/Claus-BR/node-red-contrib-camerapi.git"
   },
   "node-red": {
     "nodes": {
       "picamera2": "picamera2.js"
     }
   },
-  "author": "Claus Winther <Claus.Winther@br-automation.com>",
-  "bugs": {
-    "url": "https://github.com/Claus-BR/node-red-contrib-camerapi/issues"
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Claus-BR/BRDK-Node-RED-Picamera2.git"
   },
-  "homepage": "https://github.com/Claus-BR/node-red-contrib-camerapi#readme",
+  "bugs": {
+    "url": "https://github.com/Claus-BR/BRDK-Node-RED-Picamera2/issues"
+  },
+  "homepage": "https://github.com/Claus-BR/BRDK-Node-RED-Picamera2#readme",
   "directories": {
     "lib": "lib"
   }

@@ -1,15 +1,6 @@
 
-# node-red-contrib-picamera2
-A <a href="http://nodered.org" target="_new">Node-RED</a> node to take photos on a Raspberry Pi using the **picamera2** library (libcamera-based camera stack). This node will only work on a Raspberry Pi with a camera module enabled.
-
-## Installation
-
-
-Run the following command in the root directory of your Node-RED install or home directory (usually ~/.node-red):
-
-```sh
-        npm install node-red-contrib-picamera2
-```
+# @brdk/node-red-picamera2
+A <a href="http://nodered.org" target="_new">Node-RED</a> node to take still photos on a Raspberry Pi using the **picamera2** library. This node will only work on a Raspberry Pi with a camera module enabled.
 
 ### Prerequisites on the Raspberry Pi
 
@@ -29,23 +20,43 @@ For 90°/270° rotation support, install Pillow:
 If you are using the default path during the file option set - the path ~/Pictures will be used.
 
 ### Runtime information
-This node requires Raspberry Pi OS Bullseye or later with the libcamera camera stack. Tested with Python 3, Node.js 18+ LTS, and Node-RED 3.x+.
+This node requires Raspberry Pi OS bookworm or later with the libcamera camera stack. Tested with a docker container running Python 3, Node.js 22, and Node-RED 4.x+.
 
-## Usage
+## Quick start
 
-### TakePhoto
+1. Drag `picamera2-takephoto` into your flow.
+2. Connect an `inject` node to trigger captures.
+3. Connect a `debug` node to inspect output.
+4. Select file mode: use `Buffered Mode` for in-memory processing, or use `Default` and `Auto File Name` to save to disk.
+5. Deploy and trigger.
 
+Example flow idea:
+- `inject` -> `picamera2-takephoto (Buffered Mode)` -> `function (base64 encode)` -> storage/API node
 
-This node captures a photo using the Raspberry Pi Camera via **picamera2**. Using the Filemode, the image is stored into the file-system and <b>msg.payload</b> gives you the path and filename. In Buffermode the image will reside as a buffer in <b>msg.payload</b>.
+Screenshot:
 
+![Example flow](image-1.png)
 
-### Key differences from the legacy picamera version
+## Configuration fields
 
-- **Image effects** (negative, sketch, etc.) are no longer available — these were removed from the libcamera stack
-- **LED control** is no longer available through the camera API
-- **File formats** are limited to JPEG, PNG and BMP
-- **AWB modes** are mapped to libcamera equivalents: auto, daylight, cloudy, tungsten, fluorescent, incandescent, indoor
-- **Exposure mode** is simplified to auto/manual (manual uses the ISO/gain setting)
-- **Rotation** supports 0°, 90°, 180°, 270° — 0°/180° use native transforms, 90°/270° use post-capture Pillow rotation
+### File settings
 
-For the full picamera2 documentation see the <a href="https://datasheets.raspberrypi.com/camera/picamera2-manual.pdf" target="_new">picamera2 manual</a>.
+- `File Mode`: `0` Buffered Mode, `1` Default, `2` Auto File Name
+- `Image Name` (`autoname`): used in auto mode as base name (no extension)
+- `File Name` (`filename`): used in default mode as base name (no extension)
+- `File Path` (`filepath`): output folder, default `~/Pictures/`
+- `File Format` (`fileformat`): `jpeg`, `png`, `bmp`
+
+### Capture settings
+
+- `Image Resolution`: predefined list from `320x240` up to `3280x2464`
+- `Rotation`: `0`, `90`, `180`, `270`
+- `Image Flip`: horizontal and vertical
+- `Brightness`: `0` to `100` (mapped internally to libcamera range)
+- `Contrast`: `-100` to `100`
+- `Sharpness`: `-100` to `100`
+- `Quality`: JPEG quality `0` to `100` (ignored for non-JPEG formats)
+- `ISO`: `0` (auto) or fixed values `100` to `800`
+- `Exposure`: `auto` or `manual`
+- `AWB`: `auto`, `daylight`, `cloudy`, `tungsten`, `fluorescent`, `incandescent`, `indoor`
+- `Wait for AGC` (`agcwait`): delay before capture in seconds
